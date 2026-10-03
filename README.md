@@ -1,6 +1,6 @@
 # Telegram Forwarder
 
-Transfers **photos and videos** from a Telegram group or channel (source) into another group (target), optionally into **forum topics**. It is based on [Telethon](https://docs.telethon.dev) and is operated through a web dashboard or the command line.
+A Flask-based web application that transfers **photos and videos** from a Telegram group or channel (source) into another group (target), optionally into **forum topics**. It is based on [Telethon](https://docs.telethon.dev) and is operated through a web dashboard or the command line.
 
 Structure and feature set follow [TG-Uploader](https://github.com/outofrange007/TG-Uploader) (Flask dashboard, Telethon, topic management, progress, persistence, Docker). The difference: instead of uploading local folders, this project reads the media directly from another Telegram chat.
 
