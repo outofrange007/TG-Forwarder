@@ -2,15 +2,14 @@
 # "Environment variables" in Portainer - no .env file is needed.
 services:
   telegram-forwarder:
-    build: .
-    image: telegram-forwarder:latest
+    image: ghcr.io/outofrange007/tg-forwarder:latest
     container_name: telegram_forwarder
     restart: unless-stopped
     environment:
       - TZ=Europe/Berlin
       - DATA_PATH=/app/data
       - WEB_HOST=0.0.0.0
-      - WEB_PORT=5000
+      - WEB_PORT=5020
       # --- required ---
       - API_ID=${API_ID}
       - API_HASH=${API_HASH}
