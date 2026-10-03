@@ -1,0 +1,7 @@
+Telethon>=1.36,<2
+Flask>=3.0,<4
+python-dotenv>=1.0
+# lets Telethon provide duration/resolution when re-uploading videos (download fallback)
+hachoir>=3.2
+# speeds up encryption for large files considerably (optional but recommended)
+cryptg>=0.4

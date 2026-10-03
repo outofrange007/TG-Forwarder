@@ -1,0 +1,40 @@
+# Portainer stack (Repository). Set the variables below under
+# "Environment variables" in Portainer - no .env file is needed.
+services:
+  telegram-forwarder:
+    build: .
+    image: telegram-forwarder:latest
+    container_name: telegram_forwarder
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Berlin
+      - DATA_PATH=/app/data
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=5000
+      # --- required ---
+      - API_ID=${API_ID}
+      - API_HASH=${API_HASH}
+      - SOURCE_CHAT=${SOURCE_CHAT:-}
+      - TARGET_CHAT=${TARGET_CHAT:-}
+      - WEB_PASSWORD=${WEB_PASSWORD:-}
+      # --- optional (defaults as in .env.example) ---
+      - SESSION_STRING=${SESSION_STRING:-}
+      - SOURCE_TOPIC_ID=${SOURCE_TOPIC_ID:-}
+      - TOPIC_MODE=${TOPIC_MODE:-none}
+      - TARGET_TOPIC_ID=${TARGET_TOPIC_ID:-}
+      - MODE=${MODE:-copy}
+      - HIDE_SENDER=${HIDE_SENDER:-true}
+      - MEDIA_TYPES=${MEDIA_TYPES:-photo,video,image_file,video_file}
+      - COPY_TEXT=${COPY_TEXT:-false}
+      - DELAY_SECONDS=${DELAY_SECONDS:-2}
+      - DOWNLOAD_FALLBACK=${DOWNLOAD_FALLBACK:-true}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-2000}
+      - RESUME=${RESUME:-true}
+      - DRY_RUN=${DRY_RUN:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "5020:5000"
+    volumes:
+      - /home/TG-Forwarder/forwarder/data:/app/data
+    # Without the dashboard, for continuous operation (run "login" once beforehand):
+    # command: ["python", "-m", "forwarder", "run", "--live"]

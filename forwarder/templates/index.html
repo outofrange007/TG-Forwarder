@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Telegram Forwarder</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a1a; color: #e0e0e0; min-height: 100vh; }
+  .container { max-width: 960px; margin: 0 auto; padding: 30px; }
+  header { text-align: center; margin-bottom: 25px; }
+  h1 { font-size: 2rem; color: #fff; margin-bottom: 6px; }
+  .muted { color: #8899a6; }
+  .section { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 22px; margin-bottom: 18px; }
+  .section h2 { color: #6ca6fd; font-size: 1.2rem; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  label { display: block; font-size: .8rem; color: #8899a6; text-transform: uppercase; margin-bottom: 5px; }
+  input, select { width: 100%; padding: 10px; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 6px; font-size: .95rem; }
+  input:focus, select:focus { outline: none; border-color: #6ca6fd; }
+  input[type=checkbox] { width: auto; }
+  .btn { background: rgba(108,166,253,.2); color: #6ca6fd; border: 1px solid rgba(108,166,253,.35); padding: 9px 18px; border-radius: 6px; cursor: pointer; font-size: .95rem; }
+  .btn:hover { background: rgba(108,166,253,.32); }
+  .btn.green { background: rgba(74,222,128,.15); color: #4ade80; border-color: rgba(74,222,128,.35); }
+  .btn.stop { background: rgba(239,68,68,.2); color: #ef4444; border-color: rgba(239,68,68,.35); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  .status-box { background: rgba(0,0,0,.2); padding: 14px; border-radius: 6px; font-family: monospace; display: grid; gap: 8px; }
+  .bar-wrap { background: #333; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 4px; }
+  .bar { height: 100%; width: 0; transition: width .3s; }
+  .bar.all { background: linear-gradient(90deg,#6ca6fd,#4b8af3); }
+  .bar.file { background: linear-gradient(90deg,#4ade80,#22c55e); }
+  .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+  .stat { background: rgba(0,0,0,.2); border-radius: 6px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 1.4rem; color: #fff; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  td, th { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.06); text-align: left; }
+  th { color: #8899a6; font-weight: 500; }
+  .ev-error { color: #ef4444; } .ev-warn { color: #fbbf24; }
+  .hidden { display: none; }
+  .msg { margin-top: 10px; min-height: 1.2em; color: #fbbf24; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; background: rgba(108,166,253,.2); color: #6ca6fd; font-size: .8rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📨 Telegram Forwarder</h1>
+    <p class="muted">Photos &amp; videos from group/channel A to group B · Uptime <span id="uptime">00:00:00</span></p>
+    <p class="muted" id="userLine"></p>
+  </header>
+
+  <div id="loading" class="section muted">Checking connection ...</div>
+
+  <!-- Login -->
+  <div id="authView" class="section hidden">
+    <h2>Telegram login</h2>
+    <p class="muted" id="authHint">Log in with the account that is a member of both the source and the target group. The session is stored in the data directory.</p>
+    <div id="stepPhone" class="row">
+      <input id="phone" placeholder="+491701234567" style="max-width:260px">
+      <button class="btn" onclick="sendCode()">Request code</button>
+    </div>
+    <div id="stepCode" class="row hidden">
+      <input id="code" placeholder="Code from Telegram" style="max-width:200px">
+      <button class="btn" onclick="signIn()">Log in</button>
+    </div>
+    <div id="stepPw" class="row hidden">
+      <input id="pw" type="password" placeholder="2FA password" style="max-width:260px">
+      <button class="btn" onclick="signInPw()">Confirm</button>
+    </div>
+    <div class="msg" id="authMsg"></div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="appView" class="hidden">
+    <div class="section">
+      <h2>Control</h2>
+      <p class="muted">"History" transfers all media not yet processed. "History + Live" then waits for new messages.</p>
+      <div class="row">
+        <button class="btn green" id="btnHistory" onclick="startJob(false)">▶ Transfer history</button>
+        <button class="btn" id="btnLive" onclick="startJob(true)">⟳ History + Live</button>
+        <button class="btn stop hidden" id="btnStop" onclick="api('/api/stop','POST')">■ Stop</button>
+        <span class="pill" id="jobPill">ready</span>
+      </div>
+      <div class="msg" id="ctlMsg"></div>
+    </div>
+
+    <div class="section">
+      <h2>Progress</h2>
+      <div class="status-box">
+        <div><b>Status:</b> <span id="statusText">-</span></div>
+        <div><b>Current:</b> <span id="currentItem">-</span> <span class="muted" id="phase"></span></div>
+        <div><b>Size:</b> <span id="fileSize">0</span> MB · <b>Speed:</b> <span id="speed">0</span> MB/s · <b>Elapsed:</b> <span id="elapsed">-</span> · <b>Remaining:</b> <span id="eta">-</span></div>
+        <div><b>File:</b> <span id="fileProgText">0%</span><div class="bar-wrap"><div class="bar file" id="fileBar"></div></div></div>
+        <div><b>Total:</b> <span id="done">0</span>/<span id="total">0</span> (<span id="allProgText">0%</span>)<div class="bar-wrap"><div class="bar all" id="allBar"></div></div></div>
+      </div>
+      <div class="stats" style="margin-top:12px">
+        <div class="stat"><b id="sOk">0</b>transferred (run)</div>
+        <div class="stat"><b id="sFail">0</b>errors (run)</div>
+        <div class="stat"><b id="tOk">0</b>transferred (total)</div>
+        <div class="stat"><b id="tFail">0</b>errors (total)</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Settings</h2>
+      <div class="grid">
+        <div><label>Source (ID, @name, t.me link)</label><input id="f_source_chat"></div>
+        <div><label>Source topic</label>
+          <div style="display:flex; gap:6px">
+            <select id="f_source_topic_id"><option value="">all topics</option></select>
+            <button class="btn" type="button" onclick="loadSourceTopics(true)" title="Load topics of the source group">⟳</button>
+          </div>
+          <div class="muted" id="topicHint" style="font-size:.8rem; margin-top:4px"></div></div>
+        <div><label>Target (ID, @name, t.me link)</label><input id="f_target_chat"></div>
+        <div><label>Target topic ID (for topic mode "fixed")</label><input id="f_target_topic_id"></div>
+        <div><label>Topic mode</label>
+          <select id="f_topic_mode"><option value="none">none</option><option value="fixed">fixed (target topic ID)</option><option value="mirror">mirror (create topics with the same name)</option></select></div>
+        <div><label>Send mode</label>
+          <select id="f_mode"><option value="copy">copy (without forwarding note)</option><option value="forward">forward</option></select></div>
+        <div><label>Media types (comma-separated)</label><input id="f_media_types" placeholder="photo,video,image_file,video_file"></div>
+        <div><label>Caption template</label><input id="f_caption_template" placeholder="{caption}"></div>
+        <div><label>Pause between shipments (s)</label><input id="f_delay_seconds"></div>
+        <div><label>Max. file size (MB)</label><input id="f_max_file_size_mb"></div>
+        <div><label>From message ID</label><input id="f_start_from_id"></div>
+        <div><label>Up to message ID</label><input id="f_end_at_id"></div>
+        <div><label><input type="checkbox" id="f_hide_sender"> Hide sender (forwarding)</label></div>
+        <div><label><input type="checkbox" id="f_copy_text"> Also copy text-only messages</label></div>
+        <div><label><input type="checkbox" id="f_download_fallback"> Download fallback on content protection</label></div>
+        <div><label><input type="checkbox" id="f_dry_run"> Test run (send nothing)</label></div>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="saveSettings()">Save</button>
+        <button class="btn" onclick="loadChats()">Show my groups/channels</button>
+        <button class="btn stop" onclick="resetHistory()">Reset history</button>
+      </div>
+      <div class="msg" id="setMsg"></div>
+      <div id="chatsBox" class="hidden" style="margin-top:12px; max-height:300px; overflow:auto">
+        <table><thead><tr><th>ID</th><th>Title</th><th>Type</th><th>Forum</th><th>Protected</th><th></th></tr></thead><tbody id="chatsBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Events</h2>
+      <table><tbody id="events"><tr><td class="muted">none yet</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const FIELDS = ["source_chat","target_chat","target_topic_id","topic_mode","mode","media_types",
+                "caption_template","delay_seconds","max_file_size_mb","start_from_id","end_at_id"];
+const CHECKS = ["hide_sender","download_fallback","copy_text","dry_run"];
+let poller = null;
+
+async function api(url, method = "GET", data) {
+  const res = await fetch(url, { method, headers: { "Content-Type": "application/json" },
+                                 body: data ? JSON.stringify(data) : undefined });
+  let json = {};
+  try { json = await res.json(); } catch (e) { json = { success: false, error: "HTTP " + res.status }; }
+  return json;
+}
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function checkAuth() {
+  const d = await api("/api/auth/status");
+  $("loading").classList.add("hidden");
+  if (d.authorized) return showApp(d.user);
+  $("authView").classList.remove("hidden");
+  if (d.configured === false) {
+    $("authHint").textContent = "API_ID and API_HASH are missing. Please enter them in the .env file (my.telegram.org) and restart.";
+    $("stepPhone").classList.add("hidden");
+  }
+  if (d.error) $("authMsg").textContent = d.error;
+}
+async function sendCode() {
+  const d = await api("/api/auth/send_code", "POST", { phone: $("phone").value });
+  if (d.success) { $("stepCode").classList.remove("hidden"); $("authMsg").textContent = "Code was sent via Telegram."; }
+  else $("authMsg").textContent = d.error;
+}
+async function signIn() {
+  const d = await api("/api/auth/sign_in", "POST", { code: $("code").value });
+  if (d.success) return location.reload();
+  if (d.password_required) { $("stepPw").classList.remove("hidden"); $("authMsg").textContent = "2FA password required."; }
+  else $("authMsg").textContent = d.error;
+}
+async function signInPw() {
+  const d = await api("/api/auth/password", "POST", { password: $("pw").value });
+  if (d.success) location.reload(); else $("authMsg").textContent = d.error;
+}
+
+function showApp(user) {
+  $("appView").classList.remove("hidden");
+  if (user) $("userLine").textContent = "Logged in as " + user.name + (user.username ? " (@" + user.username + ")" : "");
+  loadSettings();
+  poll(); poller = setInterval(poll, 1000);
+}
+
+async function loadSettings() {
+  const d = await api("/api/settings");
+  const s = d.settings || {};
+  FIELDS.forEach(f => { const v = s[f]; $("f_" + f).value = Array.isArray(v) ? v.join(",") : (v ?? ""); });
+  CHECKS.forEach(f => $("f_" + f).checked = !!s[f]);
+  setTopicOptions([], s.source_topic_id);
+  if (s.source_chat) loadSourceTopics(false);
+}
+
+// Source topic dropdown: "all" is the default; a saved selection stays
+// visible even if the topic list could not (yet) be loaded.
+function setTopicOptions(topics, selected) {
+  const sel = $("f_source_topic_id");
+  const opts = [`<option value="">all topics</option>`].concat(
+    topics.map(t => `<option value="${t.id}">${esc(t.title)} (ID ${t.id})</option>`));
+  if (selected && !topics.some(t => t.id === selected))
+    opts.push(`<option value="${selected}">Topic ${selected}</option>`);
+  sel.innerHTML = opts.join("");
+  sel.value = selected ? String(selected) : "";
+}
+async function loadSourceTopics(fromInput) {
+  const chat = $("f_source_chat").value.trim();
+  const current = $("f_source_topic_id").value ? parseInt($("f_source_topic_id").value) : null;
+  if (!chat) { $("topicHint").textContent = "Enter a source first."; return; }
+  $("topicHint").textContent = "Loading topics ...";
+  const d = await api("/api/source_topics?chat=" + encodeURIComponent(chat));
+  if (d.error) { $("topicHint").textContent = d.error; return; }
+  if (!d.forum) {
+    setTopicOptions([], null);
+    $("topicHint").textContent = "\"" + d.title + "\" is not a forum - all messages are processed.";
+    return;
+  }
+  setTopicOptions(d.topics, fromInput ? current : (d.selected ?? current));
+  $("topicHint").textContent = d.topics.length + " topics in \"" + d.title + "\".";
+}
+async function saveSettings() {
+  const data = {};
+  FIELDS.forEach(f => data[f] = $("f_" + f).value);
+  data.source_topic_id = $("f_source_topic_id").value;   // "" = alle
+  CHECKS.forEach(f => data[f] = $("f_" + f).checked);
+  const d = await api("/api/settings", "POST", data);
+  $("setMsg").textContent = d.success ? "Saved." : d.error;
+  if (d.success) loadSettings();
+}
+async function loadChats() {
+  $("setMsg").textContent = "Loading chats ...";
+  const d = await api("/api/chats");
+  if (!d.chats) { $("setMsg").textContent = d.error; return; }
+  $("setMsg").textContent = d.chats.length + " groups/channels found.";
+  $("chatsBox").classList.remove("hidden");
+  $("chatsBody").innerHTML = d.chats.map(c => `<tr><td>${c.id}</td><td>${esc(c.title)}</td><td>${c.type}</td>
+     <td>${c.forum ? "yes" : "-"}</td><td>${c.protected ? "yes" : "-"}</td>
+     <td><button class="btn" onclick="$('f_source_chat').value='${c.id}'; loadSourceTopics(true)">Source</button>
+         <button class="btn" onclick="$('f_target_chat').value='${c.id}'">Target</button></td></tr>`).join("");
+}
+async function resetHistory() {
+  if (!confirm("Really delete the history? Afterwards all media will be transferred again.")) return;
+  const d = await api("/api/reset", "POST", { topics: confirm("Also delete topic mappings?") });
+  $("setMsg").textContent = d.success ? "History deleted." : d.error;
+}
+async function startJob(live) {
+  const d = await api("/api/start", "POST", { live });
+  $("ctlMsg").textContent = d.success ? "" : d.error;
+}
+
+async function poll() {
+  const d = await api("/api/status");
+  $("uptime").textContent = d.uptime;
+  $("statusText").textContent = d.status_text;
+  $("currentItem").textContent = d.current_item;
+  $("phase").textContent = d.phase ? "(" + d.phase + ")" : "";
+  $("fileSize").textContent = d.file_size_mb;
+  $("speed").textContent = d.speed_mbps;
+  $("elapsed").textContent = d.elapsed;
+  $("eta").textContent = d.eta || "-";
+  $("fileProgText").textContent = d.file_progress + "%"; $("fileBar").style.width = d.file_progress + "%";
+  $("allProgText").textContent = d.overall_progress + "%"; $("allBar").style.width = d.overall_progress + "%";
+  $("done").textContent = d.done; $("total").textContent = d.total;
+  $("sOk").textContent = d.ok; $("sFail").textContent = d.failed;
+  $("tOk").textContent = d.totals.ok; $("tFail").textContent = d.totals.failed;
+  $("btnHistory").classList.toggle("hidden", d.running);
+  $("btnLive").classList.toggle("hidden", d.running);
+  $("btnStop").classList.toggle("hidden", !d.running);
+  $("jobPill").textContent = d.running ? (d.job === "live" ? "live" : "running") : "ready";
+  if (d.events && d.events.length)
+    $("events").innerHTML = d.events.slice(0, 15).map(e =>
+      `<tr class="ev-${e.level}"><td style="width:80px">${e.time}</td><td>${esc(e.text)}</td></tr>`).join("");
+}
+
+window.addEventListener("DOMContentLoaded", checkAuth);
+</script>
+</body>
+</html>
