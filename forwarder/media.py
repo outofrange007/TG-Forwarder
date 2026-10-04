@@ -16,6 +16,10 @@ def classify(message) -> Optional[str]:
     """Returns the media type of a message or ``None`` (no photo/video)."""
     if message is None or getattr(message, "media", None) is None:
         return None
+    # Telethon exposes the preview photo/video of a link (web page) via .photo/.document,
+    # but it cannot be sent as a file. Link previews are not media of the message itself.
+    if type(message.media).__name__ in ("MessageMediaWebPage", "WebPage"):
+        return None
     if getattr(message, "photo", None) is not None:
         return "photo"
     if getattr(message, "gif", None) is not None:

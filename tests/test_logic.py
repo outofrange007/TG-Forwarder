@@ -172,3 +172,18 @@ def test_progress_callback_count_mode():
     state.progress_callback("Upload", count_mode=True, interval=0)(1.5, 3)
     snap = state.snapshot()
     assert snap["file_progress"] == 50.0 and snap["file_size_mb"] == 0.0
+
+
+def test_classify_ignores_link_preview():
+    from forwarder.media import classify
+
+    class MessageMediaWebPage:  # mimics telethon.tl.types.MessageMediaWebPage
+        pass
+
+    class Msg:
+        media = MessageMediaWebPage()
+        photo = object()  # Telethon returns the preview photo here
+        document = None
+        gif = video = video_note = None
+
+    assert classify(Msg()) is None
