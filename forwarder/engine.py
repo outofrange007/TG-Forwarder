@@ -129,11 +129,20 @@ class Forwarder:
         if topic is not None:
             if not getattr(self.source, "forum", False):
                 raise ValueError("SOURCE_TOPIC_ID is set, but the source is not a forum with topics")
-            titles = await tg_compat.list_forum_topics(self.client, self.source)
-            if titles and topic not in titles:
-                raise ValueError(f"Topic {topic} does not exist in the source "
-                                 f"(available: {', '.join(map(str, sorted(titles)))})")
-            self.source_topic_title = titles.get(topic, f"Topic {topic}")
+            titles = {}
+            if topic != GENERAL_TOPIC_ID:
+                try:
+                    titles = await tg_compat.get_forum_topics_by_id(self.client, self.source, [topic])
+                except Exception as exc:  # noqa: BLE001 - fall back to the full listing
+                    log.warning("Topic lookup by ID failed (%s: %s) - using the full listing",
+                                type(exc).__name__, exc)
+            if topic not in titles:
+                titles = await tg_compat.list_forum_topics(self.client, self.source)
+                if titles and topic not in titles and topic != GENERAL_TOPIC_ID:
+                    raise ValueError(f"Topic {topic} does not exist in the source "
+                                     f"(available: {', '.join(map(str, sorted(titles)))})")
+            self.source_topic_title = titles.get(topic) or (
+                "General" if topic == GENERAL_TOPIC_ID else f"Topic {topic}")
         self.topics = TopicResolver(self.client, self.settings, self.store, self.source,
                                     self.target, self.source_key, self.target_key)
         log.info("Source: %s (%s) | Source topic: %s | Target: %s (%s) | Mode: %s | Topics: %s",

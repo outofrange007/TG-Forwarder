@@ -156,6 +156,15 @@ class Store:
             ).fetchone()
         return row[0] if row else None
 
+    def get_topic_mapping(self, source_chat, source_topic: int, target_chat):
+        """(target_topic, stored title) or None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT target_topic, title FROM topics WHERE source_chat=? AND source_topic=? AND target_chat=?",
+                (str(source_chat), int(source_topic), str(target_chat)),
+            ).fetchone()
+        return (row[0], row[1] or "") if row else None
+
     def set_topic(self, source_chat, source_topic: int, target_chat, target_topic: int,
                   title: str = "") -> None:
         with self._lock:

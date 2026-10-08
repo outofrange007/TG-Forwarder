@@ -129,7 +129,56 @@ class FakeClient:
                 message=types.Message(id=self._new().id, peer_id=types.PeerChannel(222), date=None, message=""),
                 pts=1, pts_count=1) for _ in request.id]
             return types.Updates(updates=ups, users=[], chats=[], date=None, seq=0)
-        raise NotImplementedError(type(request).__name__)
+        name = type(request).__name__
+        if name in ("GetForumTopicsRequest", "GetForumTopicsByIDRequest",
+                    "CreateForumTopicRequest", "EditForumTopicRequest"):
+            return self._forum_request(name, request)
+        raise NotImplementedError(name)
+
+    # --- Forum topics (simulated server: {channel_id: {topic_id: title}}) ---
+    forum_topics = None          # set per test
+    topics_page_size = 100       # server may return fewer topics than requested
+    fail_by_id = False
+    fail_edit = False
+
+    def _forum_request(self, name, request):
+        from datetime import datetime, timezone
+        peer = getattr(request, "peer", None) or getattr(request, "channel", None)
+        topics = (self.forum_topics or {}).setdefault(peer.channel_id, {})
+
+        def topic(tid):
+            return types.ForumTopic(
+                id=tid, date=datetime(2020, 1, 1, tzinfo=timezone.utc), peer=types.PeerChannel(peer.channel_id),
+                title=topics[tid], icon_color=0, top_message=tid + 10000, read_inbox_max_id=0,
+                read_outbox_max_id=0, unread_count=0, unread_mentions_count=0, unread_reactions_count=0,
+                unread_poll_votes_count=0, from_id=types.PeerUser(1),
+                notify_settings=types.PeerNotifySettings())
+
+        def answer(items):
+            msgs = [types.Message(id=t.top_message, peer_id=t.peer,
+                                  date=datetime(2026, 1, 1, tzinfo=timezone.utc), message="") for t in items]
+            return types.messages.ForumTopics(count=len(topics), topics=items, messages=msgs,
+                                              chats=[], users=[], pts=0)
+        if name == "GetForumTopicsByIDRequest":
+            if self.fail_by_id:
+                raise RuntimeError("TOPIC_ID_INVALID")
+            return answer([topic(t) for t in request.topics if t in topics])
+        if name == "GetForumTopicsRequest":
+            ordered = sorted(topics, reverse=True)          # newest activity first
+            if request.offset_topic:
+                ordered = [t for t in ordered if t < request.offset_topic]
+            return answer([topic(t) for t in ordered[:min(request.limit, self.topics_page_size)]])
+        if name == "EditForumTopicRequest":
+            if self.fail_edit:
+                raise RuntimeError("CHAT_ADMIN_REQUIRED")
+            topics[request.topic_id] = request.title
+            return types.Updates(updates=[], users=[], chats=[], date=None, seq=0)
+        tid = self._new().id
+        topics[tid] = request.title
+        upd = types.UpdateNewChannelMessage(
+            message=types.Message(id=tid, peer_id=types.PeerChannel(peer.channel_id), date=None, message=""),
+            pts=1, pts_count=1)
+        return types.Updates(updates=[upd], users=[], chats=[], date=None, seq=0)
 
     async def download_media(self, message, file=None, thumb=None, progress_callback=None):
         if progress_callback:
