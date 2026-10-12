@@ -110,6 +110,7 @@ class Forwarder:
         self.source_topic_title = ""
         self.topics: Optional[TopicResolver] = None
         self._premium: Optional[bool] = None
+        self.same_group = False
 
     # ------------------------------------------------------------------ setup
     @property
@@ -122,27 +123,23 @@ class Forwarder:
         self.target = await self.client.get_entity(self.settings.target_chat)
         self.source_key = str(utils.get_peer_id(self.source))
         self.target_key = str(utils.get_peer_id(self.target))
-        if self.source_key == self.target_key:
-            raise ValueError("Source and target are identical")
-        self.source_title = utils.get_display_name(self.source) or self.source_key
         topic = self.settings.source_topic_id
+        self.same_group = self.source_key == self.target_key
+        if self.same_group:
+            if topic is None:
+                raise ValueError("Source and target are identical - set SOURCE_TOPIC_ID to sort "
+                                 "from one topic into other topics of the same group")
+            if self.settings.topic_mode == "fixed" and self.settings.target_topic_id == topic:
+                raise ValueError(f"Source topic and target topic are identical ({topic})")
+        self.source_title = utils.get_display_name(self.source) or self.source_key
         if topic is not None:
             if not getattr(self.source, "forum", False):
                 raise ValueError("SOURCE_TOPIC_ID is set, but the source is not a forum with topics")
-            titles = {}
-            if topic != GENERAL_TOPIC_ID:
-                try:
-                    titles = await tg_compat.get_forum_topics_by_id(self.client, self.source, [topic])
-                except Exception as exc:  # noqa: BLE001 - fall back to the full listing
-                    log.warning("Topic lookup by ID failed (%s: %s) - using the full listing",
-                                type(exc).__name__, exc)
-            if topic not in titles:
-                titles = await tg_compat.list_forum_topics(self.client, self.source)
-                if titles and topic not in titles and topic != GENERAL_TOPIC_ID:
-                    raise ValueError(f"Topic {topic} does not exist in the source "
-                                     f"(available: {', '.join(map(str, sorted(titles)))})")
-            self.source_topic_title = titles.get(topic) or (
-                "General" if topic == GENERAL_TOPIC_ID else f"Topic {topic}")
+            titles = await tg_compat.list_forum_topics(self.client, self.source)
+            if titles and topic not in titles:
+                raise ValueError(f"Topic {topic} does not exist in the source "
+                                 f"(available: {', '.join(map(str, sorted(titles)))})")
+            self.source_topic_title = titles.get(topic, f"Topic {topic}")
         self.topics = TopicResolver(self.client, self.settings, self.store, self.source,
                                     self.target, self.source_key, self.target_key)
         log.info("Source: %s (%s) | Source topic: %s | Target: %s (%s) | Mode: %s | Topics: %s",
@@ -150,6 +147,9 @@ class Forwarder:
                  f"{self.source_topic_title} ({topic})" if topic else "all",
                  utils.get_display_name(self.target), self.target_key,
                  self.settings.mode, self.settings.topic_mode)
+        if self.same_group:
+            log.info("Same-group mode: reading from topic %s, distributing into other topics "
+                     "of the same group.", topic)
 
     # ------------------------------------------------------------ topic filter
     @property
