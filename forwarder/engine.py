@@ -89,7 +89,7 @@ class _Upload:
         return types.InputMediaUploadedDocument(
             file=self.file, mime_type=self.mime, attributes=attrs,
             thumb=None if minimal else self.thumb,
-            force_file=self.kind in ("image_file", "video_file") or None,
+            force_file=self.kind in ("image_file", "video_file", "document") or None,
             nosound_video=self.kind == "video" or None)
 
 
@@ -110,7 +110,6 @@ class Forwarder:
         self.source_topic_title = ""
         self.topics: Optional[TopicResolver] = None
         self._premium: Optional[bool] = None
-        self.same_group = False
 
     # ------------------------------------------------------------------ setup
     @property
@@ -123,23 +122,27 @@ class Forwarder:
         self.target = await self.client.get_entity(self.settings.target_chat)
         self.source_key = str(utils.get_peer_id(self.source))
         self.target_key = str(utils.get_peer_id(self.target))
-        topic = self.settings.source_topic_id
-        self.same_group = self.source_key == self.target_key
-        if self.same_group:
-            if topic is None:
-                raise ValueError("Source and target are identical - set SOURCE_TOPIC_ID to sort "
-                                 "from one topic into other topics of the same group")
-            if self.settings.topic_mode == "fixed" and self.settings.target_topic_id == topic:
-                raise ValueError(f"Source topic and target topic are identical ({topic})")
+        if self.source_key == self.target_key:
+            raise ValueError("Source and target are identical")
         self.source_title = utils.get_display_name(self.source) or self.source_key
+        topic = self.settings.source_topic_id
         if topic is not None:
             if not getattr(self.source, "forum", False):
                 raise ValueError("SOURCE_TOPIC_ID is set, but the source is not a forum with topics")
-            titles = await tg_compat.list_forum_topics(self.client, self.source)
-            if titles and topic not in titles:
-                raise ValueError(f"Topic {topic} does not exist in the source "
-                                 f"(available: {', '.join(map(str, sorted(titles)))})")
-            self.source_topic_title = titles.get(topic, f"Topic {topic}")
+            titles = {}
+            if topic != GENERAL_TOPIC_ID:
+                try:
+                    titles = await tg_compat.get_forum_topics_by_id(self.client, self.source, [topic])
+                except Exception as exc:  # noqa: BLE001 - fall back to the full listing
+                    log.warning("Topic lookup by ID failed (%s: %s) - using the full listing",
+                                type(exc).__name__, exc)
+            if topic not in titles:
+                titles = await tg_compat.list_forum_topics(self.client, self.source)
+                if titles and topic not in titles and topic != GENERAL_TOPIC_ID:
+                    raise ValueError(f"Topic {topic} does not exist in the source "
+                                     f"(available: {', '.join(map(str, sorted(titles)))})")
+            self.source_topic_title = titles.get(topic) or (
+                "General" if topic == GENERAL_TOPIC_ID else f"Topic {topic}")
         self.topics = TopicResolver(self.client, self.settings, self.store, self.source,
                                     self.target, self.source_key, self.target_key)
         log.info("Source: %s (%s) | Source topic: %s | Target: %s (%s) | Mode: %s | Topics: %s",
@@ -147,9 +150,6 @@ class Forwarder:
                  f"{self.source_topic_title} ({topic})" if topic else "all",
                  utils.get_display_name(self.target), self.target_key,
                  self.settings.mode, self.settings.topic_mode)
-        if self.same_group:
-            log.info("Same-group mode: reading from topic %s, distributing into other topics "
-                     "of the same group.", topic)
 
     # ------------------------------------------------------------ topic filter
     @property
@@ -204,7 +204,24 @@ class Forwarder:
         log.info("Scan: %d messages checked, %d media to transfer", scanned, len(candidates))
         return [candidates[k] for k in sorted(candidates)]
 
+    async def skip_existing_history(self) -> dict:
+        """SKIP_HISTORY: transfer nothing that already exists - only mark the current end
+        of the source as checkpoint. New messages (live mode or later runs) are transferred."""
+        self.state.reset_job("history")
+        latest = await self.client.get_messages(self.source, limit=1)
+        last_id = max([getattr(m, "id", 0) or 0 for m in latest or [] if m is not None], default=0)
+        current = self.store.get_checkpoint(self.source_key, self.topic_filter)
+        if not self.settings.dry_run and last_id > current:
+            self.store.set_checkpoint(self.source_key, last_id, self.topic_filter)
+        msg = f"History skipped - only messages after ID {max(last_id, current)} will be transferred"
+        log.info(msg)
+        self.state.log(msg)
+        self.state.update(status=msg)
+        return self.state.snapshot()
+
     async def run_history(self) -> dict:
+        if self.settings.skip_history:
+            return await self.skip_existing_history()
         self.state.reset_job("history")
         self.state.update(status="Scanning source chat ...")
         candidates = await self.collect_candidates()
@@ -419,7 +436,8 @@ class Forwarder:
         try:
             attrs, mime = utils.get_attributes(
                 path, attributes=kept, mime_type=mime,
-                force_document=kind in ("image_file", "video_file"),
+                force_document=kind in ("image_file", "video_file", "document"),
+                voice_note=kind == "voice",
                 video_note=kind == "video_note", supports_streaming=kind in ("video", "video_file"),
                 thumb=thumb)
         except Exception as exc:  # noqa: BLE001 - a broken file/hachoir must not prevent the upload

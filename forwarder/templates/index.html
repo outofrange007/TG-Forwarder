@@ -118,7 +118,7 @@
           <select id="f_topic_mode"><option value="none">none</option><option value="fixed">fixed (target topic ID)</option><option value="mirror">mirror (create topics with the same name)</option></select></div>
         <div><label>Send mode</label>
           <select id="f_mode"><option value="copy">copy (without forwarding note)</option><option value="forward">forward</option></select></div>
-        <div><label>Media types (comma-separated)</label><input id="f_media_types" placeholder="photo,video,image_file,video_file"></div>
+        <div><label>Media types (comma-separated)</label><input id="f_media_types" placeholder="all  (or e.g. photo,video,document,audio)"></div>
         <div><label>Caption template</label><input id="f_caption_template" placeholder="{caption}"></div>
         <div><label>Pause between shipments (s)</label><input id="f_delay_seconds"></div>
         <div><label>Max. file size (MB)</label><input id="f_max_file_size_mb"></div>
@@ -126,6 +126,7 @@
         <div><label>Up to message ID</label><input id="f_end_at_id"></div>
         <div><label><input type="checkbox" id="f_hide_sender"> Hide sender (forwarding)</label></div>
         <div><label><input type="checkbox" id="f_copy_text"> Also copy text-only messages</label></div>
+        <div><label><input type="checkbox" id="f_skip_history"> Ignore history (only new messages from now on)</label></div>
         <div><label><input type="checkbox" id="f_download_fallback"> Download fallback on content protection</label></div>
         <div><label><input type="checkbox" id="f_dry_run"> Test run (send nothing)</label></div>
       </div>
@@ -151,7 +152,7 @@
 const $ = id => document.getElementById(id);
 const FIELDS = ["source_chat","target_chat","target_topic_id","topic_mode","mode","media_types",
                 "caption_template","delay_seconds","max_file_size_mb","start_from_id","end_at_id"];
-const CHECKS = ["hide_sender","download_fallback","copy_text","dry_run"];
+const CHECKS = ["hide_sender","download_fallback","copy_text","skip_history","dry_run"];
 let poller = null;
 
 async function api(url, method = "GET", data) {

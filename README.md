@@ -1,6 +1,6 @@
 # Telegram Forwarder
 
-A Flask-based web application that transfers **photos and videos** from a Telegram group or channel (source) into another group (target), optionally into **forum topics**. It is based on [Telethon](https://docs.telethon.dev) and is operated through a web dashboard or the command line.
+Transfers **photos and videos** from a Telegram group or channel (source) into another group (target), optionally into **forum topics**. It is based on [Telethon](https://docs.telethon.dev) and is operated through a web dashboard or the command line.
 
 Structure and feature set follow [TG-Uploader](https://github.com/outofrange007/TG-Uploader) (Flask dashboard, Telethon, topic management, progress, persistence, Docker). The difference: instead of uploading local folders, this project reads the media directly from another Telegram chat.
 
@@ -77,7 +77,7 @@ Login also works directly in the dashboard.
 
 ```bash
 cp .env.example .env              # fill in
-docker compose up -d --build      # dashboard: http://<host>:5001
+docker compose up -d --build      # dashboard: http://<host>:5020
 ```
 
 You can log in via the dashboard or the console:
@@ -113,8 +113,9 @@ All variables with explanations are in [`.env.example`](.env.example). The most 
 | `TARGET_TOPIC_ID` | – | Target topic for `fixed` |
 | `MODE` | `copy` | `copy` \| `forward` |
 | `HIDE_SENDER` | `true` | With `forward`: without "Forwarded from" |
-| `MEDIA_TYPES` | `photo,video,image_file,video_file` | Additionally possible: `animation`, `video_note`, or `all` |
+| `MEDIA_TYPES` | `photo,video,image_file,video_file` (Docker: `all`) | Additionally possible: `animation`, `video_note`, `audio`, `voice`, `sticker`, `document` (any other file such as PDF/ZIP/APK), or `all` = every file format |
 | `CAPTION_TEMPLATE` | `{caption}` | Empty = no caption |
+| `SKIP_HISTORY` | `false` | `true` = ignore the existing history: nothing already in the source is transferred, only messages arriving from now on (live mode or later runs). In the dashboard: "Ignore history" |
 | `COPY_TEXT` | `false` | `true` = also copy plain text messages (without photo/video); in the dashboard: "Also copy text-only messages" |
 | `DELAY_SECONDS` | `2` | Pause between two sends |
 | `START_FROM_ID`, `END_AT_ID` | – | ID range |

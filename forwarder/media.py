@@ -28,13 +28,22 @@ def classify(message) -> Optional[str]:
         return "video_note"
     if getattr(message, "video", None) is not None:
         return "video"
+    if getattr(message, "sticker", None) is not None:
+        return "sticker"
+    if getattr(message, "voice", None) is not None:
+        return "voice"
+    if getattr(message, "audio", None) is not None:
+        return "audio"
     document = getattr(message, "document", None)
     if document is not None:
         mime = (getattr(document, "mime_type", "") or "").lower()
-        if mime.startswith("image/") and mime != "image/webp":  # webp = usually a sticker
+        if mime == "image/webp" or mime == "application/x-tgsticker":  # usually a sticker
+            return "sticker"
+        if mime.startswith("image/"):
             return "image_file"
         if mime.startswith("video/"):
             return "video_file"
+        return "document"  # any other file (PDF, ZIP, APK, ...)
     return None
 
 
@@ -92,7 +101,7 @@ def check_message(message, settings) -> FilterResult:
     kind = classify(message)
     if kind is None:
         if not (getattr(settings, "copy_text", False) and is_text_only(message)):
-            return FilterResult(False, "no photo/video")
+            return FilterResult(False, "no media")
     elif kind not in settings.media_types:
         return FilterResult(False, f"media type {kind} not selected")
     mid = int(getattr(message, "id", 0))
