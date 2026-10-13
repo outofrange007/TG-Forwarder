@@ -19,7 +19,7 @@ def channel(cid, title):
 
 
 def forum_client(messages, source_topics, target_topics=None, **kw):
-    client = FakeClient(messages, source=channel(SRC, "Quelle"), target=channel(TGT, "Ziel"))
+    client = FakeClient(messages, source=channel(SRC, "Source"), target=channel(TGT, "Target"))
     client.forum_topics = {SRC: dict(source_topics), TGT: dict(target_topics or {})}
     for k, v in kw.items():
         setattr(client, k, v)

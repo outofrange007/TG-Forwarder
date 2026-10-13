@@ -36,7 +36,7 @@ def test_parse_media_types():
     assert parse_media_types("Photo, video") == ("photo", "video")
     assert "video_note" in parse_media_types("all")
     with pytest.raises(ConfigError):
-        parse_media_types("audio")
+        parse_media_types("fax")
 
 
 def test_load_settings_from_env(tmp_path):
@@ -75,7 +75,7 @@ def test_overrides_roundtrip(tmp_path):
 # ----------------------------------------------------------------- media
 @pytest.mark.parametrize("kind,expected", [
     ("photo", "photo"), ("video", "video"), ("animation", "animation"), ("video_note", "video_note"),
-    ("image_file", "image_file"), ("video_file", "video_file"), ("doc", None), ("text", None),
+    ("image_file", "image_file"), ("video_file", "video_file"), ("doc", "document"), ("text", None),
 ])
 def test_classify(kind, expected):
     assert classify(make_msg(1, kind)) == expected
@@ -90,7 +90,7 @@ def test_check_message_filters():
     assert not check_message(make_msg(50, "animation"), s).accepted               # type not selected
     assert not check_message(make_msg(50, "video", size=5 * 1024 * 1024), s).accepted  # too large
     assert not check_message(make_msg(50, "photo", date=datetime(2024, 1, 1, tzinfo=timezone.utc)), s).accepted
-    assert check_message(make_msg(50, "text"), s).reason == "no photo/video"
+    assert check_message(make_msg(50, "text"), s).reason == "no media"
 
 
 def test_group_batches_albums_and_order():

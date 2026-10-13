@@ -68,7 +68,9 @@ class FakeClient:
                 continue
             yield self.messages[mid]
 
-    async def get_messages(self, entity, ids=None):
+    async def get_messages(self, entity, ids=None, limit=None, **kw):
+        if ids is None:
+            return [self.messages[i] for i in sorted(self.messages, reverse=True)[:limit or 1]]
         return [self.messages.get(i) for i in ids]
 
     async def get_me(self):
