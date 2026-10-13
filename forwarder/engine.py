@@ -168,17 +168,25 @@ class Forwarder:
         return source_topic_id(msg, getattr(self.source, "forum", False)) == self.topic_filter
 
     # ---------------------------------------------------------------- history
+    def _already_done(self, message_id: int) -> bool:
+        """True if the message was transferred before - unless IGNORE_HISTORY is active,
+        in which case previous transfers are ignored and the message is sent again."""
+        if self.settings.ignore_history:
+            return False
+        return self.store.is_processed(self.source_key, message_id)
+
     async def collect_candidates(self) -> List:
         s = self.settings
         topic = self.topic_filter
         min_id = max(s.start_from_id - 1, 0)
-        if s.resume:
+        if s.resume and not s.ignore_history:
             min_id = max(min_id, self.store.get_checkpoint(self.source_key, topic))
         max_id = (s.end_at_id + 1) if s.end_at_id else 0
 
         candidates = {}
         # retry previously failed messages
-        failed = [i for i in self.store.failed_ids(self.source_key) if i <= min_id]
+        failed = [] if s.ignore_history else [
+            i for i in self.store.failed_ids(self.source_key) if i <= min_id]
         if failed:
             for msg in await self.client.get_messages(self.source, ids=failed):
                 if msg is not None and self.in_selected_topic(msg) and check_message(msg, s).accepted:
@@ -197,32 +205,19 @@ class Forwarder:
             self.scan_max_id = max(self.scan_max_id, msg.id)
             if scanned % 200 == 0:
                 self.state.update(status=f"Scanning ... {scanned} messages, {len(candidates)} media")
-            if not self.in_selected_topic(msg) or self.store.is_processed(self.source_key, msg.id):
+            if not self.in_selected_topic(msg) or self._already_done(msg.id):
                 continue
             if check_message(msg, s).accepted:
                 candidates[msg.id] = msg
         log.info("Scan: %d messages checked, %d media to transfer", scanned, len(candidates))
         return [candidates[k] for k in sorted(candidates)]
 
-    async def skip_existing_history(self) -> dict:
-        """SKIP_HISTORY: transfer nothing that already exists - only mark the current end
-        of the source as checkpoint. New messages (live mode or later runs) are transferred."""
-        self.state.reset_job("history")
-        latest = await self.client.get_messages(self.source, limit=1)
-        last_id = max([getattr(m, "id", 0) or 0 for m in latest or [] if m is not None], default=0)
-        current = self.store.get_checkpoint(self.source_key, self.topic_filter)
-        if not self.settings.dry_run and last_id > current:
-            self.store.set_checkpoint(self.source_key, last_id, self.topic_filter)
-        msg = f"History skipped - only messages after ID {max(last_id, current)} will be transferred"
-        log.info(msg)
-        self.state.log(msg)
-        self.state.update(status=msg)
-        return self.state.snapshot()
-
     async def run_history(self) -> dict:
-        if self.settings.skip_history:
-            return await self.skip_existing_history()
         self.state.reset_job("history")
+        if self.settings.ignore_history:
+            msg = "Ignoring transfer history - already transferred messages are sent again"
+            log.info(msg)
+            self.state.log(msg)
         self.state.update(status="Scanning source chat ...")
         candidates = await self.collect_candidates()
         batches = group_batches(candidates)
@@ -252,7 +247,7 @@ class Forwarder:
     def _live_accepts(self, msg) -> bool:
         if not self.in_selected_topic(msg):
             return False
-        if self.store.is_processed(self.source_key, msg.id):
+        if self._already_done(msg.id):
             return False
         return check_message(msg, self.settings).accepted
 

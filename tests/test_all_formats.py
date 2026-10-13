@@ -1,4 +1,4 @@
-"""All file formats (audio, voice, sticker, document) and SKIP_HISTORY."""
+"""All file formats (audio, voice, sticker, document) and IGNORE_HISTORY."""
 from types import SimpleNamespace
 
 from forwarder.config import ALL_MEDIA_TYPES, load_settings, parse_media_types
@@ -48,11 +48,17 @@ def _base(**kw):
     return d
 
 
-def test_skip_history_env_and_override(tmp_path):
-    s = load_settings(env={"SKIP_HISTORY": "true", "DATA_PATH": str(tmp_path)}, env_file=None)
-    assert s.skip_history is True
-    s.apply_overrides({"skip_history": "false"})
-    assert s.skip_history is False
+def test_ignore_history_env_and_override(tmp_path):
+    s = load_settings(env={"IGNORE_HISTORY": "true", "DATA_PATH": str(tmp_path)}, env_file=None)
+    assert s.ignore_history is True
+    s.apply_overrides({"ignore_history": "false"})
+    assert s.ignore_history is False
+
+
+def test_old_skip_history_override_is_ignored(tmp_path):
+    (tmp_path / "settings.json").write_text('{"skip_history": true}')
+    s = load_settings(env={"DATA_PATH": str(tmp_path)}, env_file=None)
+    assert s.ignore_history is False
 
 
 async def _run(tmp_path, msgs, **kw):
@@ -64,19 +70,24 @@ async def _run(tmp_path, msgs, **kw):
     return client, store, fw, summary
 
 
-def test_skip_history_sends_nothing_and_sets_checkpoint(tmp_path):
+def test_ignore_history_transfers_already_transferred_again(tmp_path):
     import asyncio
     msgs = [make_msg(i, "photo") for i in (1, 2, 3)]
-    client, store, fw, summary = asyncio.run(_run(tmp_path, msgs, skip_history=True))
-    assert client.sent == []
-    assert summary["ok"] == 0
-    assert store.get_checkpoint(fw.source_key, None) == 3
-    # a new message arrives -> the next normal run transfers only it
-    client.messages[4] = make_msg(4, "photo")
-    fw.settings.skip_history = False
+    client, store, fw, summary = asyncio.run(_run(tmp_path, msgs))
+    assert summary["ok"] == 3 and len(client.sent) == 3
+    # normal second run: nothing new
     summary = asyncio.run(fw.run_history())
-    assert summary["ok"] == 1 and len(client.sent) == 1
-    assert store.is_processed(fw.source_key, 4) and not store.is_processed(fw.source_key, 1)
+    assert summary["ok"] == 0 and len(client.sent) == 3
+    # ignore history: everything is sent again
+    fw.settings.ignore_history = True
+    summary = asyncio.run(fw.run_history())
+    assert summary["ok"] == 3 and len(client.sent) == 6
+    assert fw._live_accepts(msgs[0])
+    # switched off again: history is respected
+    fw.settings.ignore_history = False
+    summary = asyncio.run(fw.run_history())
+    assert summary["ok"] == 0 and len(client.sent) == 6
+    assert not fw._live_accepts(msgs[0])
 
 
 def test_document_is_transferred(tmp_path):

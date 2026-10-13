@@ -33,7 +33,7 @@ EDITABLE_FIELDS = (
     "source_chat", "source_topic_id", "target_chat", "target_topic_id",
     "topic_mode", "mode", "media_types", "caption_template", "hide_sender",
     "delay_seconds", "start_from_id", "end_at_id", "max_file_size_mb",
-    "download_fallback", "copy_text", "skip_history", "dry_run",
+    "download_fallback", "copy_text", "ignore_history", "dry_run",
 )
 
 _TG_LINK = re.compile(r"^(?:https?://)?(?:www\.)?(?:t|telegram)\.me/(.+)$", re.I)
@@ -200,7 +200,7 @@ class Settings:
     max_file_size_mb: float = 2000.0
     download_fallback: bool = True
     copy_text: bool = False
-    skip_history: bool = False
+    ignore_history: bool = False
     resume: bool = True
     dry_run: bool = False
     max_retries: int = 3
@@ -310,7 +310,7 @@ def _coerce(key: str, value):
         return parse_int(value, key.upper())
     if key == "start_from_id":
         return parse_int(value, key.upper(), 0) or 0
-    if key in ("hide_sender", "download_fallback", "copy_text", "skip_history", "dry_run", "resume"):
+    if key in ("hide_sender", "download_fallback", "copy_text", "ignore_history", "dry_run", "resume"):
         return parse_bool(value)
     if key in ("delay_seconds", "max_file_size_mb"):
         try:
@@ -368,7 +368,7 @@ def load_settings(env: Optional[dict] = None, env_file: Optional[str] = ".env",
         max_file_size_mb=float(g("MAX_FILE_SIZE_MB", 2000)),
         download_fallback=parse_bool(g("DOWNLOAD_FALLBACK"), True),
         copy_text=parse_bool(g("COPY_TEXT"), False),
-        skip_history=parse_bool(g("SKIP_HISTORY"), False),
+        ignore_history=parse_bool(g("IGNORE_HISTORY"), False),
         resume=parse_bool(g("RESUME"), True),
         dry_run=parse_bool(g("DRY_RUN"), False),
         max_retries=parse_int(g("MAX_RETRIES"), "MAX_RETRIES", 3),

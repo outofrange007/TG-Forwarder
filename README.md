@@ -115,7 +115,7 @@ All variables with explanations are in [`.env.example`](.env.example). The most 
 | `HIDE_SENDER` | `true` | With `forward`: without "Forwarded from" |
 | `MEDIA_TYPES` | `photo,video,image_file,video_file` (Docker: `all`) | Additionally possible: `animation`, `video_note`, `audio`, `voice`, `sticker`, `document` (any other file such as PDF/ZIP/APK), or `all` = every file format |
 | `CAPTION_TEMPLATE` | `{caption}` | Empty = no caption |
-| `SKIP_HISTORY` | `false` | `true` = ignore the existing history: nothing already in the source is transferred, only messages arriving from now on (live mode or later runs). In the dashboard: "Ignore history" |
+| `IGNORE_HISTORY` | `false` | `true` = ignore the transfer history: already transferred messages are transferred again (checkpoint and the list of transferred messages are ignored, not deleted). In the dashboard: "Ignore history" |
 | `COPY_TEXT` | `false` | `true` = also copy plain text messages (without photo/video); in the dashboard: "Also copy text-only messages" |
 | `DELAY_SECONDS` | `2` | Pause between two sends |
 | `START_FROM_ID`, `END_AT_ID` | – | ID range |

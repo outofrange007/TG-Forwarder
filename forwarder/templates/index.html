@@ -126,7 +126,7 @@
         <div><label>Up to message ID</label><input id="f_end_at_id"></div>
         <div><label><input type="checkbox" id="f_hide_sender"> Hide sender (forwarding)</label></div>
         <div><label><input type="checkbox" id="f_copy_text"> Also copy text-only messages</label></div>
-        <div><label><input type="checkbox" id="f_skip_history"> Ignore history (only new messages from now on)</label></div>
+        <div><label><input type="checkbox" id="f_ignore_history"> Ignore history (transfer already transferred messages again)</label></div>
         <div><label><input type="checkbox" id="f_download_fallback"> Download fallback on content protection</label></div>
         <div><label><input type="checkbox" id="f_dry_run"> Test run (send nothing)</label></div>
       </div>
@@ -152,7 +152,7 @@
 const $ = id => document.getElementById(id);
 const FIELDS = ["source_chat","target_chat","target_topic_id","topic_mode","mode","media_types",
                 "caption_template","delay_seconds","max_file_size_mb","start_from_id","end_at_id"];
-const CHECKS = ["hide_sender","download_fallback","copy_text","skip_history","dry_run"];
+const CHECKS = ["hide_sender","download_fallback","copy_text","ignore_history","dry_run"];
 let poller = null;
 
 async function api(url, method = "GET", data) {
