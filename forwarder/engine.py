@@ -50,6 +50,7 @@ _PROTECTED_ERRORS = tuple(
                 getattr(errors, "MediaInvalidError", None),
                 getattr(errors, "FileReferenceExpiredError", None)) if e
 )
+_FILE_REF_EXPIRED = getattr(errors, "FileReferenceExpiredError", None) or type("_Never", (Exception,), {})
 
 
 class RetryExhausted(RuntimeError):
@@ -320,7 +321,8 @@ class Forwarder:
                 self.state.log(f"[Test run] {label}")
                 return "dry_run"
             self._last_sent_text = None
-            target_ids = await self._with_retry(lambda: self._send(batch, topic), label)
+            refetch = {"done": False}       # shared across _with_retry attempts -> refetch at most once
+            target_ids = await self._with_retry(lambda: self._send_refetching(batch, topic, label, refetch), label)
         except Aborted:
             raise
         except Exception as exc:  # a single broken message must not end the run
@@ -358,7 +360,33 @@ class Forwarder:
         result = await self.client.send_message(self.target, text, reply_to=topic or None, **kwargs)
         return self._ids(result)
 
-    async def _send(self, batch: Batch, topic: Optional[int]) -> List[int]:
+    async def _send_refetching(self, batch: Batch, topic: Optional[int], label: str, refetch: dict) -> List[int]:
+        """Sends; on an expired file reference re-fetches the messages once and retries once."""
+        if refetch["done"]:
+            return await self._send(batch, topic, refetched=True)
+        try:
+            return await self._send(batch, topic)
+        except _FILE_REF_EXPIRED:
+            refetch["done"] = True
+            await self._refetch(batch)
+            log.info("File reference expired for %s - refetched message(s), retrying once", label)
+            self.state.log(f"File reference expired for {label} - refetched, retrying once", "warn")
+            return await self._send(batch, topic, refetched=True)
+
+    async def _refetch(self, batch: Batch) -> None:
+        """Replaces the batch's messages with fresh copies (new file references) from the source."""
+        ids = batch.ids
+        fresh = await self.client.get_messages(self.source, ids=ids)
+        if not isinstance(fresh, list):
+            fresh = [fresh]
+        by_id = {m.id: m for m in fresh if m is not None and getattr(m, "id", None) is not None}
+        missing = [i for i in ids if i not in by_id or getattr(by_id[i], "media", None) is None]
+        if missing:
+            raise RuntimeError(f"File reference expired and message(s) {missing} no longer available "
+                               "in the source (deleted or media removed)")
+        batch.messages[:] = [by_id[i] for i in ids]
+
+    async def _send(self, batch: Batch, topic: Optional[int], refetched: bool = False) -> List[int]:
         if classify(batch.messages[0]) is None:      # text-only message
             return await self._send_text(batch, topic)
         protected = is_protected(batch.messages[0], self.source)
@@ -370,6 +398,8 @@ class Forwarder:
                         top_msg_id=topic, drop_author=self.settings.hide_sender)
                 return await self._copy(batch, topic)
             except _PROTECTED_ERRORS as exc:
+                if isinstance(exc, _FILE_REF_EXPIRED) and not refetched:
+                    raise                   # stale message object -> re-fetch first (_send_refetching)
                 log.info("Direct sending not possible (%s) - using download fallback", type(exc).__name__)
                 protected = True
         if not self.settings.download_fallback:
