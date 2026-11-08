@@ -1,6 +1,17 @@
 # Portainer stack (Repository). Set the variables below under
 # "Environment variables" in Portainer - no .env file is needed.
 services:
+  # Shared database: all forwarder instances use this one history
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forwarder
+      POSTGRES_PASSWORD: ${PG_PASSWORD}   # set under "Environment variables" in Portainer
+      POSTGRES_DB: forwarder
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # persistent database storage
+
   telegram-forwarder:
     image: ghcr.io/outofrange007/tg-forwarder:latest
     container_name: telegram_forwarder
@@ -31,9 +42,14 @@ services:
       - RESUME=${RESUME:-true}
       - DRY_RUN=${DRY_RUN:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DATABASE_URL=postgresql://forwarder:${PG_PASSWORD}@postgres:5432/forwarder
+    depends_on:
+      - postgres   # start the database first
+    
     ports:
       - "5020:5000"
     volumes:
       - /home/TG-Forwarder/forwarder/data:/app/data
+      pgdata:
     # Without the dashboard, for continuous operation (run "login" once beforehand):
     # command: ["python", "-m", "forwarder", "run", "--live"]

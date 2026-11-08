@@ -15,6 +15,9 @@ Sending strategy:
 
 from __future__ import annotations
 
+import os
+import uuid
+
 import asyncio
 import logging
 import os
@@ -100,6 +103,9 @@ class Forwarder:
         self.client = client
         self.settings = settings
         self.store = store
+        # Unique ID of this running instance; used as the owner of claims
+        # so that two instances never transfer the same message in parallel.
+        self._owner = f"{os.environ.get('HOSTNAME', 'local')}-{uuid.uuid4().hex[:8]}"
         self.state = state or ProgressState()
         self.stop_event = stop_event or threading.Event()
         self.source = None
@@ -320,10 +326,21 @@ class Forwarder:
                 self.state.item_finished("ok", n)
                 self.state.log(f"[Test run] {label}")
                 return "dry_run"
+            # Reserve the batch before sending. If another instance already holds
+            # or has finished it, skip it here instead of sending a duplicate.
+            # With IGNORE_HISTORY the user wants to resend, so no claim is needed.
+            if not self.settings.ignore_history:
+                if not self.store.claim(self.source_key, batch.ids, self._owner):
+                    log.info("Skipped (other instance / already done): %s", label)
+                    self.state.item_finished("skipped", n)
+                    self.state.log(f"Skipped (other instance): {label}")
+                    return "claimed"
             self._last_sent_text = None
             refetch = {"done": False}       # shared across _with_retry attempts -> refetch at most once
             target_ids = await self._with_retry(lambda: self._send_refetching(batch, topic, label, refetch), label)
         except Aborted:
+            # Run is aborted: free the reservation so another instance can take over
+            self.store.release(self.source_key, batch.ids)
             raise
         except Exception as exc:  # a single broken message must not end the run
             reason = describe_error(exc)

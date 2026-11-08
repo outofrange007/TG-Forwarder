@@ -53,6 +53,8 @@ class FakeClient:
         self.premium = premium
         self.uploads = []        # (path, progress_callback set?)
         self.struct_fail_once = struct_fail_once
+        self.refetch = None          # {id: message or None} returned by get_messages(ids=...) if set
+        self.refetch_calls = []
 
     # --- Entities ---
     async def get_entity(self, ref):
@@ -71,7 +73,17 @@ class FakeClient:
     async def get_messages(self, entity, ids=None, limit=None, **kw):
         if ids is None:
             return [self.messages[i] for i in sorted(self.messages, reverse=True)[:limit or 1]]
+        if self.refetch is not None:
+            self.refetch_calls.append(list(ids))
+            return [self.refetch.get(i) for i in ids]
         return [self.messages.get(i) for i in ids]
+
+    @staticmethod
+    def _check_file_ref(obj):
+        """Stale objects (``file_ref_expired=True``) fail like Telegram's GetFileRequest/SendMedia."""
+        if getattr(obj, "file_ref_expired", False):
+            from telethon import errors
+            raise errors.FileReferenceExpiredError(request=None)
 
     async def get_me(self):
         return SimpleNamespace(premium=self.premium)
@@ -99,6 +111,8 @@ class FakeClient:
     async def send_file(self, entity, file=None, **kwargs):
         self._maybe_fail()
         files = file if isinstance(file, list) else [file]
+        for f in files:
+            self._check_file_ref(f)
         if self.forward_restricted and not all(self._uploaded(f) for f in files):
             from telethon import errors
             raise errors.ChatForwardsRestrictedError(request=None)
@@ -183,6 +197,8 @@ class FakeClient:
         return types.Updates(updates=[upd], users=[], chats=[], date=None, seq=0)
 
     async def download_media(self, message, file=None, thumb=None, progress_callback=None):
+        self.downloads = getattr(self, "downloads", []) + [(message.id, thumb)]
+        self._check_file_ref(message)
         if progress_callback:
             progress_callback(50, 100)
             progress_callback(100, 100)

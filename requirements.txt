@@ -5,3 +5,5 @@ python-dotenv>=1.0
 hachoir>=3.2
 # speeds up encryption for large files considerably (optional but recommended)
 cryptg>=0.4
+# PostgreSQL driver (shared transfer history across instances)
+psycopg[binary]>=3.2,<4
