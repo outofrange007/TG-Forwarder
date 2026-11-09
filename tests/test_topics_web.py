@@ -14,7 +14,7 @@ from forwarder.web import create_app
 from tests.fakes import make_msg
 
 
-# ---------------------------------------------------------------- Topics
+# ---- Topics
 def test_mirror_topics_reuse_and_create(tmp_path, monkeypatch):
     created = []
     src = SimpleNamespace(forum=True, name="SRC")
@@ -65,11 +65,12 @@ def test_new_message_ids_from_updates():
     assert tg_compat.new_message_ids(upd) == [77]
 
 
-# ------------------------------------------------------------------- Web
+# ---- Web
 class FakeWorker:
     def __init__(self):
         self.running = False
         self.started = None
+        self.settings = None
 
     def call(self, coro, timeout=60):
         return asyncio.run(coro)
@@ -89,6 +90,23 @@ class FakeWorker:
     async def dialogs(self):
         return [{"id": -100123, "title": "Group"}]
 
+    async def chat_topics(self, chat=None):
+        if chat is None:
+            raise ValueError("No chat specified")
+        if str(chat) in ("@target", "-100888"):
+            return {"chat_id": -100888, "title": "Target", "forum": True,
+                    "topics": [{"id": 7, "title": "News"}]}
+        return {"chat_id": -100123, "title": "Group", "forum": True,
+                "topics": [{"id": 5, "title": "Alpha"}, {"id": 6, "title": "Beta"}]}
+
+    async def source_topics(self, chat=None):
+        chat = chat if chat is not None else self.settings.source_chat
+        return await self.chat_topics(chat)
+
+    async def target_topics(self, chat=None):
+        chat = chat if chat is not None else self.settings.target_chat
+        return await self.chat_topics(chat)
+
     def start_job(self, live=False):
         if self.running:
             raise RuntimeError("A run is already in progress")
@@ -103,6 +121,7 @@ def web(tmp_path):
     settings = load_settings(env={"API_ID": "1", "API_HASH": "geheimer_hash", "DATA_PATH": str(tmp_path)})
     store = Store(settings.db_path)
     worker = FakeWorker()
+    worker.settings = settings
     app = create_app(settings, store, ProgressState(), worker)
     return app.test_client(), settings, worker
 
@@ -146,6 +165,21 @@ def test_web_start_stop(web):
     client.post("/api/stop")
     assert worker.running is False
     assert client.get("/api/chats").get_json()["chats"][0]["id"] == -100123
+
+
+def test_web_source_and_target_topics(web):
+    client, settings, worker = web
+    # Without a saved source, the chat must be given explicitly
+    assert client.get("/api/source_topics").status_code == 400
+    src = client.get("/api/source_topics?chat=https://t.me/c/999/1").get_json()
+    assert src["title"] == "Group" and src["selected"] is None
+    assert [t["id"] for t in src["topics"]] == [5, 6]
+    # Target falls back to the saved target chat; "selected" mirrors the saved topic ID
+    saved = client.post("/api/settings", json={"target_chat": "@target", "target_topic_id": "7"})
+    assert saved.get_json()["success"]
+    tgt = client.get("/api/target_topics").get_json()
+    assert tgt["title"] == "Target" and tgt["selected"] == 7
+    assert [t["id"] for t in tgt["topics"]] == [7]
 
 
 def test_web_password_protection(tmp_path):

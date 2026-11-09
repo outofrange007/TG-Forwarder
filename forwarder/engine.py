@@ -20,7 +20,6 @@ import uuid
 
 import asyncio
 import logging
-import os
 import shutil
 import struct
 import threading
@@ -118,7 +117,7 @@ class Forwarder:
         self.topics: Optional[TopicResolver] = None
         self._premium: Optional[bool] = None
 
-    # ------------------------------------------------------------------ setup
+    # ---- setup
     @property
     def stopped(self) -> bool:
         return self.stop_event.is_set()
@@ -158,7 +157,7 @@ class Forwarder:
                  utils.get_display_name(self.target), self.target_key,
                  self.settings.mode, self.settings.topic_mode)
 
-    # ------------------------------------------------------------ topic filter
+    # ---- topic filter
     @property
     def topic_filter(self) -> Optional[int]:
         return self.settings.source_topic_id
@@ -174,7 +173,7 @@ class Forwarder:
             return True
         return source_topic_id(msg, getattr(self.source, "forum", False)) == self.topic_filter
 
-    # ---------------------------------------------------------------- history
+    # ---- history
     def _already_done(self, message_id: int) -> bool:
         """True if the message was transferred before - unless IGNORE_HISTORY is active,
         in which case previous transfers are ignored and the message is sent again."""
@@ -250,7 +249,7 @@ class Forwarder:
                  "aborted" if self.stopped else "complete")
         return summary
 
-    # -------------------------------------------------------------------- live
+    # ---- live
     def _live_accepts(self, msg) -> bool:
         if not self.in_selected_topic(msg):
             return False
@@ -302,7 +301,7 @@ class Forwarder:
             summary = self.state.snapshot()
         return summary
 
-    # ------------------------------------------------------------ processing
+    # ---- processing
     def _label(self, batch: Batch) -> str:
         label = file_name(batch.messages[0])
         return f"{label} (+{len(batch.messages) - 1} in album)" if batch.is_album else label
@@ -571,7 +570,7 @@ class Forwarder:
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    # ------------------------------------------------------- retry/connection
+    # ---- retry/connection
     def _connected(self) -> bool:
         checker = getattr(self.client, "is_connected", None)
         return bool(checker()) if callable(checker) else True
@@ -621,8 +620,8 @@ def describe_error(exc: Exception) -> str:
     return str(exc) or type(exc).__name__
 
 
-async def list_source_topics(client, chat) -> dict:
-    """Topics of a (source) group for dashboard/CLI: {forum, title, topics:[{id, title}]}."""
+async def list_chat_topics(client, chat) -> dict:
+    """Topics of a forum group (source or target) for dashboard/CLI: {chat_id, title, forum, topics:[{id, title}]}."""
     entity = await client.get_entity(chat)
     forum = bool(getattr(entity, "forum", False))
     topics = await tg_compat.list_forum_topics(client, entity) if forum else {}
@@ -632,6 +631,10 @@ async def list_source_topics(client, chat) -> dict:
         "forum": forum,
         "topics": [{"id": tid, "title": title} for tid, title in sorted(topics.items())],
     }
+
+
+# Backwards-compatible alias (this function used to be source-specific)
+list_source_topics = list_chat_topics
 
 
 async def list_dialogs(client, limit: int = 300) -> List[dict]:
@@ -652,4 +655,5 @@ async def list_dialogs(client, limit: int = 300) -> List[dict]:
     return result
 
 
-__all__ = ["Forwarder", "list_dialogs", "list_source_topics", "RetryExhausted", "Aborted", "ProtectedContentError"]
+__all__ = ["Forwarder", "list_dialogs", "list_chat_topics", "list_source_topics",
+           "RetryExhausted", "Aborted", "ProtectedContentError"]

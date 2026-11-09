@@ -16,7 +16,7 @@ from typing import Optional
 from telethon import TelegramClient, errors
 from telethon.sessions import StringSession
 
-from .engine import Forwarder, list_dialogs, list_source_topics
+from .engine import Forwarder, list_chat_topics, list_dialogs
 from .state import ProgressState
 from .store import Store
 
@@ -115,11 +115,23 @@ class TelegramWorker:
     async def dialogs(self) -> list:
         return await list_dialogs(await self._ensure_client())
 
+    async def chat_topics(self, chat=None) -> dict:
+        """Topics of any forum group (used by the dashboard dropdowns)."""
+        if chat is None:
+            raise ValueError("No chat specified")
+        return await list_chat_topics(await self._ensure_client(), chat)
+
     async def source_topics(self, chat=None) -> dict:
         chat = chat if chat is not None else self.settings.source_chat
         if chat is None:
             raise ValueError("No source specified")
-        return await list_source_topics(await self._ensure_client(), chat)
+        return await self.chat_topics(chat)
+
+    async def target_topics(self, chat=None) -> dict:
+        chat = chat if chat is not None else self.settings.target_chat
+        if chat is None:
+            raise ValueError("No target specified")
+        return await self.chat_topics(chat)
 
     # --- Jobs ---
     @property

@@ -105,15 +105,28 @@
     <div class="section">
       <h2>Settings</h2>
       <div class="grid">
-        <div><label>Source (ID, @name, t.me link)</label><input id="f_source_chat"></div>
+        <div><label>Source (group/channel)</label>
+          <div style="display:flex; gap:6px">
+            <select id="f_source_chat" onchange="loadTopics('source', 'reset')"><option value="">– select source –</option></select>
+            <button class="btn" type="button" onclick="loadChats(true)" title="Reload the chat list">⟳</button>
+          </div></div>
         <div><label>Source topic</label>
           <div style="display:flex; gap:6px">
             <select id="f_source_topic_id"><option value="">all topics</option></select>
-            <button class="btn" type="button" onclick="loadSourceTopics(true)" title="Load topics of the source group">⟳</button>
+            <button class="btn" type="button" onclick="loadTopics('source', 'keep')" title="Load topics of the source group">⟳</button>
           </div>
-          <div class="muted" id="topicHint" style="font-size:.8rem; margin-top:4px"></div></div>
-        <div><label>Target (ID, @name, t.me link)</label><input id="f_target_chat"></div>
-        <div><label>Target topic ID (for topic mode "fixed")</label><input id="f_target_topic_id"></div>
+          <div class="muted" id="sourceTopicHint" style="font-size:.8rem; margin-top:4px"></div></div>
+        <div><label>Target (group/channel)</label>
+          <div style="display:flex; gap:6px">
+            <select id="f_target_chat" onchange="loadTopics('target', 'reset')"><option value="">– select target –</option></select>
+            <button class="btn" type="button" onclick="loadChats(true)" title="Reload the chat list">⟳</button>
+          </div></div>
+        <div><label>Target topic (for topic mode "fixed")</label>
+          <div style="display:flex; gap:6px">
+            <select id="f_target_topic_id"><option value="">none</option></select>
+            <button class="btn" type="button" onclick="loadTopics('target', 'keep')" title="Load topics of the target group">⟳</button>
+          </div>
+          <div class="muted" id="targetTopicHint" style="font-size:.8rem; margin-top:4px"></div></div>
         <div><label>Topic mode</label>
           <select id="f_topic_mode"><option value="none">none</option><option value="fixed">fixed (target topic ID)</option><option value="mirror">mirror (create topics with the same name)</option></select></div>
         <div><label>Send mode</label>
@@ -132,7 +145,7 @@
       </div>
       <div class="row">
         <button class="btn" onclick="saveSettings()">Save</button>
-        <button class="btn" onclick="loadChats()">Show my groups/channels</button>
+        <button class="btn" onclick="loadChats(true)">Show my groups/channels</button>
         <button class="btn stop" onclick="resetHistory()">Reset history</button>
       </div>
       <div class="msg" id="setMsg"></div>
@@ -154,6 +167,7 @@ const FIELDS = ["source_chat","target_chat","target_topic_id","topic_mode","mode
                 "caption_template","delay_seconds","max_file_size_mb","start_from_id","end_at_id"];
 const CHECKS = ["hide_sender","download_fallback","copy_text","ignore_history","dry_run"];
 let poller = null;
+const savedChats = { source: "", target: "" };   // last known saved chats (may be missing from the list)
 
 async function api(url, method = "GET", data) {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json" },
@@ -201,57 +215,102 @@ function showApp(user) {
 async function loadSettings() {
   const d = await api("/api/settings");
   const s = d.settings || {};
+  savedChats.source = String(s.source_chat ?? "");
+  savedChats.target = String(s.target_chat ?? "");
   FIELDS.forEach(f => { const v = s[f]; $("f_" + f).value = Array.isArray(v) ? v.join(",") : (v ?? ""); });
   CHECKS.forEach(f => $("f_" + f).checked = !!s[f]);
-  setTopicOptions([], s.source_topic_id);
-  if (s.source_chat) loadSourceTopics(false);
+  setTopicOptions("source", [], s.source_topic_id);
+  setTopicOptions("target", [], s.target_topic_id);
+  // Fill the chat dropdowns; if that fails, the saved chats stay selectable.
+  const ok = await loadChats(false);
+  if (!ok) {
+    setChatOptions($("f_source_chat"), [], savedChats.source);
+    setChatOptions($("f_target_chat"), [], savedChats.target);
+  }
+  if (savedChats.source) loadTopics("source", "saved");
+  if (savedChats.target) loadTopics("target", "saved");
 }
 
-// Source topic dropdown: "all" is the default; a saved selection stays
-// visible even if the topic list could not (yet) be loaded.
-function setTopicOptions(topics, selected) {
-  const sel = $("f_source_topic_id");
-  const opts = [`<option value="">all topics</option>`].concat(
+// Chat dropdown: keep the saved chat selectable even if the chat list could
+// not (yet) be loaded or does not contain it. A saved @name is matched by ID.
+function setChatOptions(sel, chats, current) {
+  const cur = String(current ?? "");
+  const match = chats.find(c => String(c.id) === cur || (c.username && "@" + c.username === cur));
+  const opts = [`<option value="">– select –</option>`].concat(
+    chats.map(c => `<option value="${c.id}">${esc(c.title)} (${c.id}${c.forum ? ", forum" : ""})</option>`));
+  if (cur && !match) opts.push(`<option value="${esc(cur)}">${esc(cur)}</option>`);
+  sel.innerHTML = opts.join("");
+  sel.value = match ? String(match.id) : cur;
+}
+
+// Topic dropdown for one side ("source"/"target"): default is "all topics"
+// (source) or "none" (target); a saved selection stays visible even if the
+// topic list could not (yet) be loaded.
+function setTopicOptions(kind, topics, selected) {
+  const sel = $("f_" + kind + "_topic_id");
+  const opts = [`<option value="">${kind === "source" ? "all topics" : "none"}</option>`].concat(
     topics.map(t => `<option value="${t.id}">${esc(t.title)} (ID ${t.id})</option>`));
   if (selected && !topics.some(t => t.id === selected))
     opts.push(`<option value="${selected}">Topic ${selected}</option>`);
   sel.innerHTML = opts.join("");
   sel.value = selected ? String(selected) : "";
 }
-async function loadSourceTopics(fromInput) {
-  const chat = $("f_source_chat").value.trim();
-  const current = $("f_source_topic_id").value ? parseInt($("f_source_topic_id").value) : null;
-  if (!chat) { $("topicHint").textContent = "Enter a source first."; return; }
-  $("topicHint").textContent = "Loading topics ...";
-  const d = await api("/api/source_topics?chat=" + encodeURIComponent(chat));
-  if (d.error) { $("topicHint").textContent = d.error; return; }
+
+// Loads the topics of the selected chat; mode:
+//   "saved" - preselect the saved topic (page load)
+//   "keep"  - keep the current selection (refresh button)
+//   "reset" - start with the default (another chat was selected)
+async function loadTopics(kind, mode = "saved") {
+  const sel = $("f_" + kind + "_topic_id");
+  const hint = $(kind + "TopicHint");
+  const chat = $("f_" + kind + "_chat").value.trim();
+  const current = sel.value ? parseInt(sel.value) : null;
+  if (!chat) { setTopicOptions(kind, [], null); hint.textContent = "Select a " + kind + " chat first."; return; }
+  hint.textContent = "Loading topics ...";
+  const d = await api("/api/" + kind + "_topics?chat=" + encodeURIComponent(chat));
+  if (d.error) { hint.textContent = d.error; return; }
   if (!d.forum) {
-    setTopicOptions([], null);
-    $("topicHint").textContent = "\"" + d.title + "\" is not a forum - all messages are processed.";
+    setTopicOptions(kind, [], null);
+    hint.textContent = kind === "source"
+      ? "\"" + d.title + "\" is not a forum - all messages are processed."
+      : "\"" + d.title + "\" is not a forum - no topics available.";
     return;
   }
-  setTopicOptions(d.topics, fromInput ? current : (d.selected ?? current));
-  $("topicHint").textContent = d.topics.length + " topics in \"" + d.title + "\".";
+  const selected = mode === "keep" ? current : mode === "reset" ? null : (d.selected ?? current);
+  setTopicOptions(kind, d.topics, selected);
+  hint.textContent = d.topics.length + " topics in \"" + d.title + "\".";
 }
 async function saveSettings() {
   const data = {};
   FIELDS.forEach(f => data[f] = $("f_" + f).value);
-  data.source_topic_id = $("f_source_topic_id").value;   // "" = alle
+  data.source_topic_id = $("f_source_topic_id").value;   // "" = all topics
   CHECKS.forEach(f => data[f] = $("f_" + f).checked);
   const d = await api("/api/settings", "POST", data);
   $("setMsg").textContent = d.success ? "Saved." : d.error;
   if (d.success) loadSettings();
 }
-async function loadChats() {
-  $("setMsg").textContent = "Loading chats ...";
+
+function pickChat(kind, id) {
+  $("f_" + kind + "_chat").value = String(id);
+  loadTopics(kind, "reset");
+}
+// Loads the account's groups/channels into the dropdowns; with verbose=true
+// the details table below is shown as well. Returns true on success.
+async function loadChats(verbose) {
+  if (verbose) $("setMsg").textContent = "Loading chats ...";
   const d = await api("/api/chats");
-  if (!d.chats) { $("setMsg").textContent = d.error; return; }
-  $("setMsg").textContent = d.chats.length + " groups/channels found.";
-  $("chatsBox").classList.remove("hidden");
-  $("chatsBody").innerHTML = d.chats.map(c => `<tr><td>${c.id}</td><td>${esc(c.title)}</td><td>${c.type}</td>
-     <td>${c.forum ? "yes" : "-"}</td><td>${c.protected ? "yes" : "-"}</td>
-     <td><button class="btn" onclick="$('f_source_chat').value='${c.id}'; loadSourceTopics(true)">Source</button>
-         <button class="btn" onclick="$('f_target_chat').value='${c.id}'">Target</button></td></tr>`).join("");
+  if (!d.chats) { if (verbose) $("setMsg").textContent = d.error; return false; }
+  if (verbose) $("setMsg").textContent = d.chats.length + " groups/channels found.";
+  setChatOptions($("f_source_chat"), d.chats, $("f_source_chat").value || savedChats.source);
+  setChatOptions($("f_target_chat"), d.chats, $("f_target_chat").value || savedChats.target);
+  if (verbose) {
+    $("chatsBox").classList.remove("hidden");
+    $("chatsBody").innerHTML = d.chats.map(c => `<tr><td>${c.id}</td><td>${esc(c.title)}</td><td>${c.type}</td>
+       <td>${c.forum ? "yes" : "-"}</td><td>${c.protected ? "yes" : "-"}</td>
+       <td><button class="btn" onclick="pickChat('source', ${c.id})">Source</button>
+           <button class="btn" onclick="pickChat('target', ${c.id})">Target</button></td></tr>`).join("");
+  }
+  return true;
 }
 async function resetHistory() {
   if (!confirm("Really delete the history? Afterwards all media will be transferred again.")) return;

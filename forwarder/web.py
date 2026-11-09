@@ -149,6 +149,15 @@ def create_app(settings, store, state, worker) -> Flask:
         data["selected"] = settings.source_topic_id
         return jsonify(data)
 
+    @app.route("/api/target_topics")
+    @telegram_call
+    def target_topics():
+        """Topics of the target (``?chat=`` overrides the saved target)."""
+        chat = parse_chat_ref(request.args.get("chat")) if request.args.get("chat") else None
+        data = worker.call(worker.target_topics(chat), timeout=60)
+        data["selected"] = settings.target_topic_id
+        return jsonify(data)
+
     @app.route("/api/history")
     def history():
         limit = min(int(request.args.get("limit", 25)), 200)
